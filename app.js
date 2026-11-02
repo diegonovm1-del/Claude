@@ -352,7 +352,7 @@ async function renderPage(p){
       p.insertBefore(c,p.firstChild);
       const task=page.render({canvasContext:c.getContext('2d'),viewport:vp,transform:dpr!==1?[dpr,0,0,dpr,0,0]:undefined});
       p._task=task;
-      const tl=el('div',{class:'textLayer'});p.append(tl);
+      const tl=el('div',{class:'textLayer'});tl.style.setProperty('--scale-factor',vp.scale);p.append(tl);
       const tc=await page.getTextContent();
       if(p._t!==t)return;
       const tt=pdfjsLib.renderTextLayer({textContentSource:tc,container:tl,viewport:vp,textDivs:[]});
