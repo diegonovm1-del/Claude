@@ -852,7 +852,14 @@ async function openAIPanel(){
     }
     const c=await AI.check();
     if(!live())return;
-    if(!c.ok){body.replaceChildren(el('p',{},c.reason));return}
+    if(!c.ok){
+      body.replaceChildren(el('p',{},c.reason));
+      if(c.diag){
+        body.append(el('p',{},'Dá para tentar liberar pelo Chrome: abra ',el('b',{},'chrome://flags'),', procure ',el('b',{},'Unsafe WebGPU Support'),', mude para ',el('b',{},'Enabled'),', toque em ',el('b',{},'Relaunch'),' e abra este painel de novo.'));
+        body.append(el('details',{},el('summary',{},'Detalhes técnicos'),el('pre',{},c.diag)));
+      }
+      return;
+    }
     let id=null;
     try{id=await AI.installedId()}catch(e){body.replaceChildren(el('p',{},'Não foi possível carregar o módulo de IA. Abra o app com internet uma vez e tente de novo.'));return}
     if(!live())return;

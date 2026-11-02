@@ -80,9 +80,31 @@ window.LeitorAI = {
       return { ok: false, reason: 'Este navegador não tem WebGPU, que a IA precisa para usar a placa de vídeo. Use o Chrome atualizado.' };
     }
     let a = null;
-    try { a = await navigator.gpu.requestAdapter(); } catch (e) {}
-    if (!a) return { ok: false, reason: 'O WebGPU está desligado ou não encontrou a placa de vídeo. Confira em chrome://gpu se a linha WebGPU diz "Hardware accelerated".' };
+    try { a = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }); } catch (e) {}
+    if (!a) {
+      try { a = await navigator.gpu.requestAdapter(); } catch (e) {}
+    }
+    if (!a) return { ok: false, diag: await this.diagnose(), reason: 'O Chrome tem WebGPU, mas não liberou a placa de vídeo deste celular para o app.' };
     return { ok: true, f16: a.features.has('shader-f16') };
+  },
+
+  /* detalhes para entender por que o WebGPU não respondeu */
+  async diagnose() {
+    const out = [`navigator.gpu: ${'gpu' in navigator ? 'sim' : 'não'}`];
+    const tries = [['padrão', {}], ['alto desempenho', { powerPreference: 'high-performance' }], ['economia', { powerPreference: 'low-power' }],
+      ['compatibilidade', { featureLevel: 'compatibility' }], ['compatibilidade (antigo)', { compatibilityMode: true }]];
+    for (const [nome, opt] of tries) {
+      try {
+        const a = await navigator.gpu.requestAdapter(opt);
+        if (!a) { out.push(`${nome}: sem adaptador`); continue; }
+        let info = a.info || {};
+        out.push(`${nome}: OK (${[info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || 'sem detalhes'})` +
+          `, f16=${a.features.has('shader-f16')}, buffer=${Math.round(a.limits.maxStorageBufferBindingSize / 1048576)} MB`);
+      } catch (e) { out.push(`${nome}: erro ${e.message}`); }
+    }
+    out.push(`memória: ${navigator.deviceMemory || '?'} GB, núcleos: ${navigator.hardwareConcurrency || '?'}`);
+    out.push(navigator.userAgent);
+    return out.join('\n');
   },
 
   async installedId() {
