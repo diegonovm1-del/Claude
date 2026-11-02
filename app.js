@@ -310,12 +310,13 @@ function closeDoc(){
   if(state.pdf){try{state.pdf.destroy()}catch(e){}state.pdf=null}
   if(state.imgUrl){URL.revokeObjectURL(state.imgUrl);state.imgUrl=null}
   $('#pages').replaceChildren();
-  state.cur=null;
+  state.cur=null;state.sel=null;
   hideSelBar(true);
   loadDocs().then(()=>{renderLibrary();show('lib')});
 }
 
 function buildPages(){
+  if(state.sel){state.sel=null;hideSelBar(true)}
   const box=$('#pages');box.replaceChildren();
   if(obs)obs.disconnect();
   obs=new IntersectionObserver(es=>{
@@ -448,25 +449,98 @@ function rectsFromRange(range){
   }
   return out.filter((a,i)=>!out.some((b,j)=>j!==i&&b.p===a.p&&b.x<=a.x+.001&&b.y<=a.y+.001&&b.x+b.w>=a.x+a.w-.001&&b.y+b.h>=a.y+a.h-.001&&(b.w>a.w||b.h>a.h||j<i)));
 }
-function checkSel(){
-  if(!state.cur||$('#sheetWrap').classList.contains('on'))return;
-  const ae=document.activeElement;if(ae&&/TEXTAREA|INPUT/.test(ae.tagName))return;
-  const s=getSelection();
-  if(!s||s.rangeCount===0||s.isCollapsed){hideSelBar();return}
-  const range=s.getRangeAt(0);
-  if(!$('#pages').contains(range.commonAncestorContainer)){hideSelBar();return}
-  const text=s.toString().replace(/\s+/g,' ').trim();
-  if(!text){hideSelBar();return}
+/* Seleção própria do app: tocar numa palavra seleciona, tocar em outra estende
+   até ela, tocar fora cancela. A seleção nativa fica desligada nas páginas para
+   não abrir o menu do Android nem o "Tocar para pesquisar" do Chrome. */
+const WORD=/[\p{L}\p{N}'’\-]/u;
+let selTip=false;
+function distTo(r,x,y){const dx=Math.max(r.left-x,0,x-r.right),dy=Math.max(r.top-y,0,y-r.bottom);return Math.hypot(dx,dy)}
+function textTargets(x,y){
+  const els=document.elementsFromPoint(x,y);
+  const page=els.map(e=>e.closest&&e.closest('.page')).find(Boolean);
+  if(!page)return [];
+  const isTxt=e=>e.firstChild&&e.firstChild.nodeType===3;
+  const direct=els.find(e=>(e.tagName==='SPAN'&&isTxt(e)&&e.closest('.textLayer'))||e.classList.contains('txtbody'));
+  if(direct)return [direct];
+  // toque entre linhas: usa a linha mais próxima
+  let best=null,bd=14;
+  for(const e of page.querySelectorAll('.textLayer span')){if(!isTxt(e))continue;const d=distTo(e.getBoundingClientRect(),x,y);if(d<bd){bd=d;best=e}}
+  return best?[best]:[];
+}
+function wordAt(x,y){
+  const t=textTargets(x,y)[0];if(!t)return null;
+  const r=document.createRange();
+  let best=null,bd=14;
+  for(const node of t.childNodes){
+    if(node.nodeType!==3)continue;
+    const d=node.data;
+    for(let i=0;i<d.length;i++){
+      if(!WORD.test(d[i]))continue;
+      r.setStart(node,i);r.setEnd(node,i+1);
+      const b=r.getBoundingClientRect();if(!b.width&&!b.height)continue;
+      const dist=distTo(b,x,y);
+      if(dist<bd){bd=dist;best={node,i};if(!dist)break}
+    }
+    if(best&&!bd)break;
+  }
+  if(!best)return null;
+  const d=best.node.data;let s=best.i,e=best.i+1;
+  while(s>0&&WORD.test(d[s-1]))s--;
+  while(e<d.length&&WORD.test(d[e]))e++;
+  while(s<e&&/['’\-]/.test(d[s]))s++;
+  while(e>s&&/['’\-]/.test(d[e-1]))e--;
+  if(s>=e)return null;
+  return {node:best.node,s,e};
+}
+function before(aNode,aOff,bNode,bOff){
+  const r=document.createRange();r.setStart(aNode,aOff);r.collapse(true);
+  const q=document.createRange();q.setStart(bNode,bOff);q.collapse(true);
+  return r.compareBoundaryPoints(Range.START_TO_START,q)<0;
+}
+function rangeText(range){
+  let root=range.commonAncestorContainer;if(root.nodeType===3)root=root.parentNode;
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT);
+  let out='',n=w.currentNode;
+  while(n){
+    if(range.intersectsNode(n)){
+      if(n.nodeType===3){
+        const st=n===range.startContainer?range.startOffset:0,en=n===range.endContainer?range.endOffset:n.data.length;
+        out+=n.data.slice(st,en);
+      }else if(n.tagName==='BR')out+=' ';
+    }
+    n=w.nextNode();
+  }
+  return out;
+}
+function selectAt(x,y){
+  const w=wordAt(x,y);
+  if(!w){if(state.sel){clearSel();return true}return false}
+  const a=state.sel&&state.sel.anchor;
+  const range=document.createRange();
+  if(a&&a.node.isConnected){
+    if(a.node===w.node&&a.s===w.s&&state.sel.single){clearSel();return true}
+    const startA=before(a.node,a.s,w.node,w.s);
+    range.setStart(startA?a.node:w.node,startA?a.s:w.s);
+    const endA=!before(a.node,a.e,w.node,w.e);
+    range.setEnd(endA?a.node:w.node,endA?a.e:w.e);
+  }else{range.setStart(w.node,w.s);range.setEnd(w.node,w.e)}
+  const text=rangeText(range).replace(/\s+/g,' ').trim();
   const rects=rectsFromRange(range);
-  if(!rects.length){hideSelBar();return}
-  state.sel={text:text.slice(0,2000),rects};
-  showSelBar();
+  if(!text||!rects.length)return false;
+  const anchor=a&&a.node.isConnected?a:w;
+  state.sel={text:text.slice(0,2000),rects,anchor,single:anchor===w||(a.node===w.node&&a.s===w.s)};
+  refreshHL();showSelBar();
+  if(!selTip){selTip=true;toast('Toque em outra palavra para estender a seleção')}
+  return true;
+}
+function clearSel(){
+  if(!state.sel)return;
+  state.sel=null;barPressed=false;refreshHL();hideSelBar(true);
 }
 async function createHL(color,withComment){
   const s=state.sel;if(!s||!s.rects.length)return;
   const m={id:uid(),docId:state.cur.id,page:s.rects[0].p,text:s.text,rects:s.rects,color,comment:'',created:Date.now()};
   state.marks.push(m);await store.put('marks',m);
-  try{getSelection().removeAllRanges()}catch(e){}
   state.sel=null;barPressed=false;hideSelBar(true);
   refreshHL();
   if(withComment)openMarkSheet(m,true);else toast('Trecho destacado');
@@ -480,6 +554,13 @@ function renderHL(p){
     const d=document.createElement('div');
     d.className='hlr'+(m.id===state.openMark?' active':'');
     d.style.cssText=`left:${r.x*100}%;top:${r.y*100}%;width:${r.w*100}%;height:${r.h*100}%;background:${COLORS[m.color]}`;
+    hl.append(d);
+  }
+  if(state.sel)for(const r of state.sel.rects){
+    if(r.p!==n)continue;
+    const d=document.createElement('div');
+    d.className='hlr selr';
+    d.style.cssText=`left:${r.x*100}%;top:${r.y*100}%;width:${r.w*100}%;height:${r.h*100}%`;
     hl.append(d);
   }
 }
@@ -497,6 +578,7 @@ function sheetHead(title,back){
 function openSheet(node){
   $('#sheet').replaceChildren(node);
   $('#sheetWrap').classList.add('on');
+  if(state.sel){state.sel=null;refreshHL()}
   hideSelBar(true);
 }
 function closeSheet(){
@@ -637,19 +719,26 @@ function init(){
     pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
-  let selT;
-  document.addEventListener('selectionchange',()=>{clearTimeout(selT);selT=setTimeout(checkSel,140)});
 
   const rd=$('#reader');
   let ticking=false;
   rd.addEventListener('scroll',()=>{if(ticking)return;ticking=true;requestAnimationFrame(()=>{ticking=false;updateCur()})},{passive:true});
-  rd.addEventListener('click',e=>{
-    const s=getSelection();if(s&&!s.isCollapsed)return;
-    const p=e.target.closest('.page');if(!p)return;
+  const markAt=(x0,y0)=>{
+    const p=document.elementsFromPoint(x0,y0).map(e=>e.closest&&e.closest('.page')).find(Boolean);if(!p)return null;
     const r=p.getBoundingClientRect();
-    const x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height,n=+p.dataset.p,pad=.006;
-    const hit=[...state.marks].reverse().find(m=>m.rects.some(q=>q.p===n&&x>=q.x-pad&&x<=q.x+q.w+pad&&y>=q.y-pad&&y<=q.y+q.h+pad));
-    if(hit)openMarkSheet(hit);
+    const x=(x0-r.left)/r.width,y=(y0-r.top)/r.height,n=+p.dataset.p,pad=.006;
+    return [...state.marks].reverse().find(m=>m.rects.some(q=>q.p===n&&x>=q.x-pad&&x<=q.x+q.w+pad&&y>=q.y-pad&&y<=q.y+q.h+pad));
+  };
+  rd.addEventListener('click',e=>{
+    if(!state.sel){const hit=markAt(e.clientX,e.clientY);if(hit){openMarkSheet(hit);return}}
+    selectAt(e.clientX,e.clientY);
+  });
+  // toque longo: no Android vira "contextmenu"; seleciona a palavra sem abrir menus do sistema
+  rd.addEventListener('contextmenu',e=>{
+    if(!e.target.closest('.page'))return;
+    e.preventDefault();
+    if(!state.sel&&markAt(e.clientX,e.clientY))return;
+    selectAt(e.clientX,e.clientY);
   });
 
   let rt;

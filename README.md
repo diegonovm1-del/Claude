@@ -4,6 +4,15 @@ Leitor pessoal de PDFs, imagens e textos, com marcações coloridas, comentário
 
 Os livros, as marcações e os comentários ficam guardados só no celular. O GitHub hospeda apenas o código do app.
 
+## Como marcar um trecho
+
+- Toque numa palavra para selecioná-la (o toque longo também funciona).
+- Toque em outra palavra para estender a seleção até ela.
+- Escolha uma cor ou **Comentar** na barra que aparece embaixo.
+- Toque na mesma palavra de novo, ou fora do texto, para cancelar.
+
+O app usa a própria seleção, sem o menu do Android e sem o "Tocar para pesquisar" do Chrome.
+
 ## Arquivos
 
 | Arquivo | Para que serve |
