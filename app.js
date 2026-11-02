@@ -242,7 +242,8 @@ const BK='LEITOR-BACKUP';
 function fmtSize(n){
   if(n<1024)return n+' B';
   if(n<1048576)return Math.round(n/1024)+' KB';
-  return (n/1048576).toFixed(n<10485760?1:0).replace('.',',')+' MB';
+  if(n<1073741824)return (n/1048576).toFixed(n<10485760?1:0).replace('.',',')+' MB';
+  return (n/1073741824).toFixed(1).replace('.',',')+' GB';
 }
 async function makeBackup(withFiles){
   const docs=await store.all('docs'),marks=await store.all('marks'),bms=await store.all('bms');
@@ -364,7 +365,7 @@ No topo da tela, o ícone de marcador salva a página atual. Toque nele de novo 
 
 Perguntar à IA
 
-Dentro da ficha de uma marcação existe o botão “Perguntar à IA”. O trecho destacado, e o seu comentário, se houver, seguem como contexto, e você complementa com um pedido livre, como traduzir, explicar ou resumir. Enquanto a IA local não estiver instalada, o app mostra o que seria enviado.
+Dentro da ficha de uma marcação existe o botão “Perguntar à IA”. O trecho destacado, e o seu comentário, se houver, seguem como contexto, e você complementa com um pedido livre, como traduzir, explicar ou resumir. Para usar, instale a IA uma vez pelo botão de estrela, na Biblioteca. Depois ela funciona sem internet.
 
 A leitura atenta costuma começar antes da primeira página. Observar o título, o sumário e a orelha do livro ajuda o cérebro a criar uma moldura onde as ideias seguintes vão se encaixar. Quem lê assim não perde tempo: chega ao texto já sabendo o que procurar.
 
@@ -757,17 +758,146 @@ function openAI(m){
     busy=true;send.disabled=true;
     try{
       let out='';
-      await AI.ask(messages,tok=>{out+=tok;ans.textContent=out});
+      await AI.ask(messages,tok=>{out+=tok;ans.textContent=out},r=>{
+        if(!out)ans.textContent=`Carregando a IA… ${Math.round((r.progress||0)*100)}%`;
+      });
       if(!out)ans.textContent='(sem resposta)';
     }catch(e){
       if(e.message==='IA_DESLIGADA'){
-        ans.textContent='A IA local ainda não está instalada. É isto que será enviado ao modelo:';
+        ans.textContent='A IA local ainda não está instalada neste aparelho.';
+        bub.append(el('button',{class:'btn primary',style:'margin-top:10px',onclick:()=>openAIPanel()},ico('spark'),'Instalar a IA'));
         bub.append(el('details',{},el('summary',{},'Ver o que seria enviado'),el('pre',{},messages.map(x=>x.content).join('\n\n---\n\n'))));
-      }else ans.textContent='Não foi possível responder: '+e.message;
+      }else{
+        ans.textContent='Não foi possível responder. Toque em Enviar para tentar de novo.';
+        bub.append(el('details',{},el('summary',{},'Detalhes'),el('pre',{},String(e&&e.message||e))));
+      }
     }finally{busy=false;send.disabled=false}
   }},ico('send'),'Enviar');
   w.append(log,chips,el('div',{class:'sendrow'},ta,send));
   openSheet(w);
+}
+
+/* ---------- painel da IA local ---------- */
+async function openAIPanel(){
+  const AI=window.LeitorAI;
+  const w=el('div');
+  w.append(sheetHead('IA local'));
+  w.append(el('p',{},'Uma IA que roda no próprio celular para traduzir, explicar e resumir os trechos marcados. Depois de instalada, funciona sem internet, e o texto não sai do aparelho.'));
+  const body=el('div',{},el('p',{class:'muted'},'Verificando o aparelho…'));
+  w.append(body);
+  openSheet(w);
+  if(!AI){body.replaceChildren(el('p',{},'O módulo de IA não carregou.'));return}
+  const live=()=>w.isConnected;
+
+  const progressView=(title)=>{
+    const bar=el('i',{style:'width:0%'}),pct=el('b',{},'0%'),info=el('div',{class:'muted'},'');
+    body.replaceChildren(
+      el('p',{},el('b',{},title)),
+      el('div',{class:'bar big'},bar),
+      el('div',{class:'prow'},pct,info),
+      el('p',{class:'muted'},'Mantenha o app aberto e a tela ligada. Se a conexão cair, toque em Instalar de novo: o que já foi baixado é aproveitado.'));
+    return r=>{
+      if(!live())return;
+      const p=Math.max(0,Math.min(1,r.progress||0));
+      bar.style.width=(p*100).toFixed(1)+'%';pct.textContent=Math.round(p*100)+'%';
+      const mb=/([\d.]+)\s*MB\s*fetched/i.exec(r.text||'');
+      info.textContent=mb?`${Math.round(+mb[1])} MB baixados`:/shader|gpu|loading|cache\[/i.test(r.text||'')&&p>0.98?'Preparando a placa de vídeo…':'';
+    };
+  };
+
+  const errorView=e=>{
+    const msg=String(e&&e.message||e);
+    let txt='Não foi possível instalar a IA.';
+    if(/fetch|network|Failed to fetch|NetworkError/i.test(msg))txt='A conexão caiu durante o download. Toque em Instalar de novo para continuar de onde parou.';
+    else if(/quota|storage|QuotaExceeded/i.test(msg))txt='Falta espaço no celular para o modelo. Libere espaço ou escolha o modelo menor.';
+    else if(/memory|out of memory|OOM|device.*lost|lost/i.test(msg))txt='O celular ficou sem memória para este modelo. Feche outros apps ou escolha o modelo menor.';
+    else if(/shader-f16|maxStorageBuffer|maxBuffer|limit/i.test(msg))txt='A placa de vídeo do celular não aceitou este modelo. Tente o modelo menor.';
+    body.replaceChildren(el('p',{},txt),el('details',{},el('summary',{},'Detalhes técnicos'),el('pre',{},msg)));
+    body.append(el('div',{class:'actions'},el('button',{class:'btn primary grow',onclick:()=>draw()},'Voltar')));
+  };
+
+  const runTest=async(box)=>{
+    const out=el('div',{class:'quote'},'Testando…');box.replaceChildren(el('p',{class:'lbl'},'Teste: traduzir “The little prince”'),out);
+    try{
+      const r=await AI.test(t=>{if(live())out.textContent=t});
+      if(!live())return;
+      out.textContent=r.text||'(sem resposta)';
+      box.append(el('p',{class:'muted'},`Velocidade: ${r.tokPerSec.toFixed(1).replace('.',',')} pedaços de palavra por segundo.`));
+    }catch(e){if(live()){out.textContent='O teste falhou.';box.append(el('details',{},el('summary',{},'Detalhes técnicos'),el('pre',{},String(e&&e.message||e))))}}
+  };
+
+  const install=async key=>{
+    const m=AI.MODELS.find(x=>x.key===key);
+    const onP=progressView(`Baixando ${m.name}…`);
+    let lock=null;try{lock=await navigator.wakeLock.request('screen')}catch(e){}
+    try{
+      await AI.install(key,onP);
+      if(!live()){toast('IA instalada');return}
+      const box=el('div');
+      body.replaceChildren(el('p',{},el('b',{},'IA instalada!')),box,
+        el('p',{class:'muted'},'Para usar, abra uma marcação e toque em Perguntar à IA.'),
+        el('div',{class:'actions'},el('button',{class:'btn primary grow',onclick:closeSheet},'OK')));
+      runTest(box);
+    }catch(e){if(live())errorView(e);else toast('A instalação da IA falhou')}
+    finally{try{lock&&lock.release()}catch(e){}}
+  };
+
+  async function draw(){
+    if(!live())return;
+    if(AI.status==='loading'&&AI._loading){
+      const onP=progressView('Preparando a IA…');if(AI.lastReport)onP(AI.lastReport);
+      AI.listeners.add(onP);
+      AI._loading.then(()=>{AI.listeners.delete(onP);draw()},e=>{AI.listeners.delete(onP);if(live())errorView(e)});
+      return;
+    }
+    const c=await AI.check();
+    if(!live())return;
+    if(!c.ok){body.replaceChildren(el('p',{},c.reason));return}
+    let id=null;
+    try{id=await AI.installedId()}catch(e){body.replaceChildren(el('p',{},'Não foi possível carregar o módulo de IA. Abra o app com internet uma vez e tente de novo.'));return}
+    if(!live())return;
+    if(id){
+      const m=AI.modelOf(id);
+      const box=el('div');
+      let armed=false;
+      const del=el('button',{class:'btn danger grow',onclick:async()=>{
+        if(!armed){armed=true;del.textContent='Confirmar remoção';return}
+        del.disabled=true;await AI.remove();toast('IA removida do aparelho');draw();
+      }},ico('trash'),'Remover');
+      body.replaceChildren(
+        el('div',{class:'tile',style:'cursor:default'},ico('spark'),el('div',{},el('b',{},`Instalada: ${m?m.name:id}`),el('span',{class:'s'},`${m?m.size:''} no aparelho${AI.status==='ready'?' • pronta':''}`))),
+        box,
+        el('div',{class:'actions'},
+          el('button',{class:'btn grow',onclick:()=>runTest(box)},'Testar'),
+          el('button',{class:'btn grow',onclick:()=>chooser(id)},'Trocar'),
+          del));
+      return;
+    }
+    chooser(null);
+  }
+
+  async function chooser(current){
+    let free='';
+    try{const e=await navigator.storage.estimate();if(e&&e.quota)free=`Espaço disponível para o app: ${fmtSize(Math.max(0,e.quota-(e.usage||0)))}.`}catch(e){}
+    if(!live())return;
+    const mem=navigator.deviceMemory||0;
+    let pick=AI.MODELS[0].key;
+    if(current){const cm=AI.modelOf(current);pick=(AI.MODELS.find(x=>x!==cm)||AI.MODELS[0]).key}
+    const tiles=el('div',{class:'tiles'});
+    const drawTiles=()=>tiles.replaceChildren(...AI.MODELS.map(m=>el('button',{class:'tile pick'+(m.key===pick?' on':''),onclick:()=>{pick=m.key;drawTiles()}},
+      el('span',{class:'radio'}),
+      el('div',{},el('b',{},m.name),el('span',{class:'s'},`${m.note} Download de ${m.size}; usa ${String(m.memGB).replace('.',',')} GB de memória.`)))));
+    drawTiles();
+    body.replaceChildren(
+      el('p',{class:'lbl'},current?'Trocar por:':'Escolha o modelo:'),
+      tiles,
+      el('p',{class:'muted'},[free,'Use o Wi-Fi: o download é grande e acontece uma vez só.',mem&&mem<4?' Este celular tem pouca memória; prefira o modelo menor.':''].filter(Boolean).join(' ')),
+      el('div',{class:'actions'},
+        current?el('button',{class:'btn grow',onclick:()=>draw()},'Cancelar'):null,
+        el('button',{class:'btn primary grow',onclick:()=>install(pick)},ico('download'),current?'Trocar':'Instalar')));
+  }
+
+  draw();
 }
 
 function openIndex(tab='bm'){
@@ -824,6 +954,7 @@ function init(){
   $('#btnImport').append(ico('plus'),'Importar');
   $('#btnImport').onclick=openImport;
   $('#btnBackup').append(ico('archive'));$('#btnBackup').onclick=openBackup;
+  $('#btnAI').append(ico('spark'));$('#btnAI').onclick=()=>openAIPanel();
   $('#btnBack').append(ico('back'));$('#btnBack').onclick=backFromDoc;
   $('#btnBm').append(ico('bookmark'));$('#btnBm').onclick=toggleBm;
   $('#btnIdx').append(ico('list'));$('#btnIdx').onclick=()=>openIndex();

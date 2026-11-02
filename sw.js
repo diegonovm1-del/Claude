@@ -2,11 +2,11 @@
   Service worker do Leitor: guarda o app para funcionar sem internet.
   Ao publicar uma versão nova, aumente o número em VERSION.
 */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = 'leitor-' + VERSION;
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const FILES = [
-  './', './index.html', './app.css', './app.js', './ai.js', './manifest.webmanifest',
+  './', './index.html', './app.css', './app.js', './ai.js', './ai-worker.js', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-maskable-512.png',
   PDFJS + 'pdf.min.js', PDFJS + 'pdf.worker.min.js'
 ];
@@ -27,6 +27,10 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+
+  // Modelos da IA (Hugging Face, GitHub) são grandes e o WebLLM já guarda por conta
+  // própria: o service worker não mexe neles, para não ocupar o espaço duas vezes.
+  if (url.origin !== location.origin && url.host !== 'cdnjs.cloudflare.com') return;
 
   // Bibliotecas externas: usa o que está guardado; busca na rede só se faltar.
   if (url.origin !== location.origin) {

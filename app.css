@@ -53,6 +53,14 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stro
 .csub{color:var(--muted);font-size:13px;margin-top:4px}
 .bar{height:4px;background:var(--surface2);border-radius:2px;margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
+.bar.big{height:10px;border-radius:5px;margin:4px 0 8px}
+.bar.big i{transition:width .3s}
+.prow{display:flex;justify-content:space-between;gap:10px;margin-bottom:6px}
+.tile.pick{width:100%}
+.tile.pick.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:none}
+.tile.pick.on .radio{border:6px solid var(--accent)}
+pre{white-space:pre-wrap;word-break:break-word;font-size:12px;max-height:200px;overflow:auto}
 .card .del{position:absolute;top:6px;right:6px;width:34px;height:34px;border-radius:10px;border:0;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center}
 .card .del svg{width:18px;height:18px}
 .empty{max-width:420px;margin:12vh auto 0;text-align:center}

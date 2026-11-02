@@ -1,6 +1,6 @@
 # Leitor
 
-Leitor pessoal de PDFs, imagens e textos, com marcações coloridas, comentários, marcadores de página e (em breve) IA local para tradução e significados.
+Leitor pessoal de PDFs, imagens e textos, com marcações coloridas, comentários, marcadores de página e IA local para tradução e significados.
 
 Os livros, as marcações e os comentários ficam guardados só no celular. O GitHub hospeda apenas o código do app.
 
@@ -20,7 +20,9 @@ O app usa a própria seleção, sem o menu do Android e sem o "Tocar para pesqui
 | `index.html` | Estrutura das telas |
 | `app.css` | Visual |
 | `app.js` | Leitor, marcações, marcadores e armazenamento |
-| `ai.js` | Módulo da IA (o modelo local entra aqui na próxima etapa) |
+| `ai.js` | Módulo da IA local (instalar, perguntar, remover) |
+| `ai-worker.js` | Roda a IA fora da tela principal |
+| `webllm.js` e `webllm.LICENSE` | Biblioteca WebLLM 0.2.86 (Apache 2.0), que roda o modelo no celular |
 | `sw.js` | Faz o app funcionar sem internet |
 | `manifest.webmanifest` e `icon-*.png` | Instalação como app e ícone |
 
@@ -46,6 +48,19 @@ Depois de aberto uma vez, o app funciona sem internet.
 ## Cuidados
 
 - Os dados ficam no armazenamento do Chrome (IndexedDB). Limpar os dados do site ou do navegador apaga a biblioteca e as marcações. Faça backups de vez em quando.
+
+## IA local
+
+Na Biblioteca, toque no ícone de estrela.
+
+1. Escolha o modelo: **Qwen2.5 1.5B** (recomendado, ~1 GB de download) ou **Qwen2.5 0.5B** (mais leve, ~300 MB).
+2. Toque em **Instalar**, de preferência no Wi-Fi, e mantenha o app aberto até terminar. Se a conexão cair, toque em Instalar de novo: o download continua de onde parou.
+3. No fim, o app faz um teste rápido e mostra a velocidade.
+4. Para usar, abra uma marcação e toque em **Perguntar à IA**.
+
+Depois de instalada, a IA funciona sem internet e o texto não sai do celular. Na primeira pergunta depois de abrir o app, ela leva alguns segundos para carregar.
+
+Requisitos: Chrome com WebGPU ligado (em `chrome://gpu`, a linha WebGPU deve dizer "Hardware accelerated") e memória livre para o modelo. Os modelos ficam no armazenamento do Chrome e não entram no backup. Pelo mesmo painel dá para testar, trocar ou remover o modelo.
 
 ## Backup
 
