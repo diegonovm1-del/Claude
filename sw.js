@@ -2,7 +2,7 @@
   Service worker do Leitor: guarda o app para funcionar sem internet.
   Ao publicar uma versão nova, aumente o número em VERSION.
 */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = 'leitor-' + VERSION;
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const FILES = [

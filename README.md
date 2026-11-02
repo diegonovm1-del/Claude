@@ -45,5 +45,16 @@ Depois de aberto uma vez, o app funciona sem internet.
 
 ## Cuidados
 
-- Os dados ficam no armazenamento do Chrome. Limpar os dados do site ou do navegador apaga a biblioteca e as marcações. Uma função de backup (exportar e importar) pode ser adicionada depois.
+- Os dados ficam no armazenamento do Chrome (IndexedDB). Limpar os dados do site ou do navegador apaga a biblioteca e as marcações. Faça backups de vez em quando.
+
+## Backup
+
+Na Biblioteca, toque no ícone de caixa ao lado de **Importar**.
+
+- **Baixar backup** salva um arquivo `.leitor` na pasta Downloads. Com **Incluir os arquivos** marcado, ele leva os PDFs, imagens e textos junto. Desmarcado, leva só marcações, comentários e marcadores e fica pequeno.
+- **Restaurar backup** junta o conteúdo do arquivo ao que já está no aparelho, sem apagar nada. Restaurar o mesmo backup duas vezes não duplica nada.
+- Um backup sem os arquivos só recupera as marcações de documentos que já estão na biblioteca. Se for preciso, importe o PDF de novo e depois restaure o backup.
+- Com a biblioteca vazia, o botão **Restaurar backup** também aparece na tela inicial.
+
+Guarde o arquivo de backup fora do celular (Google Drive, e-mail) para ele não se perder junto com o aparelho.
 - Para o leitor de PDF, a primeira abertura do app precisa de internet.

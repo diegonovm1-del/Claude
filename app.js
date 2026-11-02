@@ -30,7 +30,10 @@ const ICON={
   send:'<path d="M5 12l15-7-5 15-3-6z"/>',
   file:'<path d="M7 3h7l4 4v14H7zM14 3v4h4"/>',
   image:'<path d="M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M9 9.5h.01"/>',
-  text:'<path d="M5 6h14M5 11h14M5 16h9"/>'
+  text:'<path d="M5 6h14M5 11h14M5 16h9"/>',
+  archive:'<path d="M4 5h16v4H4zM5 9v10h14V9M10 13h4"/>',
+  download:'<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  upload:'<path d="M12 16V5M7 10l5-5 5 5M5 20h14"/>'
 };
 const ico=n=>{const s=document.createElement('span');s.style.display='inline-grid';s.innerHTML=`<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICON[n]}</svg>`;return s};
 const COLORS={yellow:'rgba(255,208,0,.55)',green:'rgba(70,200,90,.5)',blue:'rgba(60,150,255,.5)',pink:'rgba(255,90,150,.5)'};
@@ -101,7 +104,8 @@ function renderLibrary(){
       el('p',{},'Importe um PDF, uma imagem ou um arquivo de texto. Os arquivos ficam só neste aparelho.'),
       el('div',{class:'row'},
         el('button',{class:'btn primary',onclick:openImport},ico('plus'),'Importar arquivo'),
-        el('button',{class:'btn',onclick:loadSample},'Abrir documento de exemplo')
+        el('button',{class:'btn',onclick:loadSample},'Abrir documento de exemplo'),
+        el('button',{class:'btn',onclick:pickBackup},ico('upload'),'Restaurar backup')
       )));
     return;
   }
@@ -230,13 +234,125 @@ async function importFiles(files){
   await loadDocs();renderLibrary();
   if(ok)toast(ok===1?'Documento importado':`${ok} documentos importados`);
 }
+/* ---------- backup ----------
+   Formato: uma linha "LEITOR-BACKUP 1 <tamanho do JSON em bytes>", o JSON com
+   documentos, marcações e marcadores, e depois os arquivos (PDFs, imagens,
+   textos) colados em sequência, cada um localizado por offset e tamanho. */
+const BK='LEITOR-BACKUP';
+function fmtSize(n){
+  if(n<1024)return n+' B';
+  if(n<1048576)return Math.round(n/1024)+' KB';
+  return (n/1048576).toFixed(n<10485760?1:0).replace('.',',')+' MB';
+}
+async function makeBackup(withFiles){
+  const docs=await store.all('docs'),marks=await store.all('marks'),bms=await store.all('bms');
+  const parts=[],files=[];let off=0;
+  if(withFiles)for(const d of docs){
+    const f=await store.get('files',d.id);if(!f||!f.blob)continue;
+    files.push({id:d.id,type:f.blob.type||'',size:f.blob.size,offset:off});
+    parts.push(f.blob);off+=f.blob.size;
+  }
+  const json=new TextEncoder().encode(JSON.stringify({app:'leitor',version:1,created:Date.now(),docs,marks,bms,files}));
+  return new Blob([`${BK} 1 ${json.length}\n`,json,...parts],{type:'application/octet-stream'});
+}
+async function downloadBackup(withFiles){
+  toast('Preparando backup…');
+  try{
+    const b=await makeBackup(withFiles);
+    const d=new Date(),z=n=>String(n).padStart(2,'0');
+    const name=`leitor-backup-${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}${withFiles?'':'-marcacoes'}.leitor`;
+    const url=URL.createObjectURL(b);
+    const a=el('a',{href:url,download:name,style:'display:none'});document.body.append(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),120000);
+    toast(`Backup salvo em Downloads (${fmtSize(b.size)})`);
+  }catch(e){toast('Não foi possível gerar o backup')}
+}
+async function readBackup(file){
+  const line=(await file.slice(0,80).text()).split('\n')[0];
+  const m=line.match(/^LEITOR-BACKUP (\d+) (\d+)$/);
+  if(!m||+m[1]!==1)throw new Error('formato');
+  const h=line.length+1,len=+m[2];
+  const data=JSON.parse(await file.slice(h,h+len).text());
+  if(!data||data.app!=='leitor')throw new Error('formato');
+  const base=h+len;
+  return {data,blob:f=>file.slice(base+f.offset,base+f.offset+f.size,f.type)};
+}
+function pickBackup(){
+  closeSheet();
+  const inp=$('#file');inp.removeAttribute('accept');inp.value='';
+  inp.onchange=()=>{const f=inp.files[0];if(f)restoreBackup(f)};
+  inp.click();
+}
+async function restoreBackup(file){
+  toast('Restaurando backup…');
+  let bk;
+  try{bk=await readBackup(file)}catch(e){toast('Este arquivo não é um backup do Leitor');return}
+  const data=bk.data;
+  try{
+    const local=await store.all('docs');
+    const ids=new Set(local.map(d=>d.id));
+    const files=new Map((data.files||[]).map(f=>[f.id,f]));
+    const map=new Map(),missing=[];let nd=0;
+    for(const d of data.docs||[]){
+      if(ids.has(d.id)){map.set(d.id,d.id);continue}
+      const f=files.get(d.id);
+      if(f){await store.put('files',{id:d.id,blob:bk.blob(f)});await store.put('docs',d);map.set(d.id,d.id);nd++;continue}
+      // backup só de marcações: liga ao mesmo documento importado de novo
+      const same=local.find(x=>x.name===d.name&&x.size===d.size&&x.kind===d.kind);
+      if(same){map.set(d.id,same.id);continue}
+      missing.push(d.name);
+    }
+    const oldMarks=new Set((await store.all('marks')).map(m=>m.id));
+    let nm=0;
+    for(const m of data.marks||[]){
+      const id=map.get(m.docId);if(!id)continue;
+      if(!oldMarks.has(m.id))nm++;
+      await store.put('marks',{...m,docId:id});
+    }
+    const oldBms=await store.all('bms');let nb=0;
+    for(const b of data.bms||[]){
+      const id=map.get(b.docId);if(!id)continue;
+      if(oldBms.some(x=>x.docId===id&&x.page===b.page))continue;
+      await store.put('bms',{...b,docId:id});nb++;
+    }
+    await loadDocs();renderLibrary();
+    const w=el('div');
+    w.append(sheetHead('Backup restaurado'));
+    const n=(k,a,b)=>`${k} ${k===1?a:b}`;
+    w.append(el('p',{},`${n(nd,'documento adicionado','documentos adicionados')}, ${n(nm,'marcação nova','marcações novas')} e ${n(nb,'marcador novo','marcadores novos')}. O que já estava no aparelho foi mantido.`));
+    if(missing.length){
+      w.append(el('p',{},'Estes documentos não estavam no backup nem na biblioteca, então as marcações deles ficaram de fora:'));
+      w.append(el('ul',{},missing.map(x=>el('li',{},x))));
+      w.append(el('p',{class:'muted'},'Importe esses arquivos de novo e restaure o backup outra vez para recuperar as marcações.'));
+    }
+    w.append(el('div',{class:'actions'},el('button',{class:'btn primary grow',onclick:closeSheet},'OK')));
+    openSheet(w);
+  }catch(e){toast('Não foi possível restaurar o backup')}
+}
+async function openBackup(){
+  const docs=await store.all('docs'),marks=await store.all('marks');
+  const total=docs.reduce((a,d)=>a+(d.size||0),0);
+  const w=el('div');
+  w.append(sheetHead('Backup'));
+  w.append(el('p',{},'Salva seus documentos, marcações, comentários e marcadores num arquivo. Guarde esse arquivo fora do celular (Google Drive, e-mail) para não perder nada se os dados do navegador forem apagados.'));
+  const cb=el('input',{type:'checkbox'});cb.checked=true;
+  w.append(el('label',{class:'chk'},cb,el('span',{},
+    el('b',{},'Incluir os arquivos'),
+    el('span',{class:'s'},`PDFs, imagens e textos (cerca de ${fmtSize(total)}). Sem eles, o backup fica pequeno, mas para restaurar os documentos precisam estar na biblioteca.`))));
+  w.append(el('div',{class:'tiles'},
+    el('button',{class:'tile',onclick:()=>{closeSheet();downloadBackup(cb.checked)}},ico('download'),el('div',{},el('b',{},'Baixar backup'),el('span',{class:'s'},`${docs.length} ${docs.length===1?'documento':'documentos'} e ${marks.length} ${marks.length===1?'marcação':'marcações'}`))),
+    el('button',{class:'tile',onclick:pickBackup},ico('upload'),el('div',{},el('b',{},'Restaurar backup'),el('span',{class:'s'},'Junta o backup ao que já está no aparelho, sem apagar nada')))
+  ));
+  openSheet(w);
+}
+
 const SAMPLE=`Bem-vindo ao protótipo do leitor
 
 Este é um documento de exemplo para você testar as funções do app sem precisar importar nada. Tudo o que você marcar aqui fica salvo no seu aparelho.
 
 Como marcar um trecho
 
-Pressione e segure uma palavra para começar a seleção e arraste as alças para ampliar. Assim que houver texto selecionado, aparece uma barra na parte de baixo da tela com quatro cores. Toque em uma cor para destacar o trecho.
+Toque em uma palavra para selecioná-la. Para pegar um trecho maior, toque em outra palavra: a seleção vai da primeira até ela. Assim que houver texto selecionado, aparece uma barra na parte de baixo da tela com quatro cores. Toque em uma cor para destacar o trecho. Para cancelar, toque de novo na mesma palavra ou fora do texto.
 
 Como comentar
 
@@ -707,6 +823,7 @@ function openView(){
 function init(){
   $('#btnImport').append(ico('plus'),'Importar');
   $('#btnImport').onclick=openImport;
+  $('#btnBackup').append(ico('archive'));$('#btnBackup').onclick=openBackup;
   $('#btnBack').append(ico('back'));$('#btnBack').onclick=backFromDoc;
   $('#btnBm').append(ico('bookmark'));$('#btnBm').onclick=toggleBm;
   $('#btnIdx').append(ico('list'));$('#btnIdx').onclick=()=>openIndex();
