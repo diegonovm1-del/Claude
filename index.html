@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3447c9">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Leitor</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+<div id="lib" class="screen on">
+  <header class="topbar">
+    <h1>Biblioteca</h1>
+    <button class="btn primary" id="btnImport"></button>
+  </header>
+  <div id="libBody" class="libbody"></div>
+</div>
+
+<div id="rd" class="screen">
+  <header class="topbar">
+    <button class="ib" id="btnBack" aria-label="Voltar para a biblioteca"></button>
+    <div class="ttl" id="title"></div>
+    <button class="ib" id="btnBm" aria-label="Marcar página"></button>
+    <button class="ib" id="btnIdx" aria-label="Marcadores e marcações"></button>
+    <button class="ib" id="btnView" aria-label="Visualização"></button>
+  </header>
+  <div id="reader"><div id="pages"></div></div>
+  <button id="pill">1 / 1</button>
+</div>
+
+<div id="selbar"></div>
+<div id="sheetWrap"><div class="backdrop"></div><div class="sheet" id="sheet"></div></div>
+<div id="toast"></div>
+<input type="file" id="file" multiple hidden>
+
+<script src="ai.js"></script>
+<script src="app.js"></script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
